@@ -1,0 +1,21 @@
+# CeylonGo Backend - Phase 1 Dependencies (Authentication Core)
+# Deferring SQLAlchemy and pyodbc to Phase 2 per project plan
+
+# Core Web Framework
+fastapi==0.115.11
+uvicorn[standard]==0.34.0
+
+# Configuration and Validation
+pydantic==2.10.6
+pydantic-settings==2.8.1
+email-validator==2.2.0
+
+# Security, Token Generation, and Hashing (Provisional Verifier)
+PyJWT[crypto]==2.10.1
+bcrypt==4.3.0
+cryptography==44.0.2
+
+# Testing Framework
+pytest==8.3.5
+pytest-asyncio==0.25.3
+httpx==0.28.1
