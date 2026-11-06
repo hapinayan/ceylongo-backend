@@ -19,8 +19,8 @@ class UserRepositoryInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_by_id(self, user_id: str) -> Optional[UserDomain]:
-        """Retrieve user domain entity by unique user identifier."""
+    async def get_by_id(self, user_id: int) -> Optional[UserDomain]:
+        """Retrieve user domain entity by unique integer user identifier (UserId)."""
         pass
 
 
@@ -36,7 +36,7 @@ class UnconfiguredUserRepository(UserRepositoryInterface):
             "Database service is not configured or currently unavailable. Live login is not yet available."
         )
 
-    async def get_by_id(self, user_id: str) -> Optional[UserDomain]:
+    async def get_by_id(self, user_id: int) -> Optional[UserDomain]:
         raise ServiceUnavailableException(
             "Database service is not configured or currently unavailable. Live login is not yet available."
         )

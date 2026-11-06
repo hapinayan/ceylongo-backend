@@ -1,7 +1,7 @@
 """JWT token generation and verification utilities."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError, PyJWTError
 
@@ -10,7 +10,7 @@ from app.core.exceptions import AuthenticationFailedException
 
 
 def create_access_token(
-    subject: str,
+    subject: Union[str, int],
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     """Create a signed JWT access token.

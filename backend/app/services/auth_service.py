@@ -48,11 +48,11 @@ class AuthService:
             raise AuthenticationFailedException("Invalid email or password")
 
         # Reject missing, unknown, or ambiguous role mappings safely
-        if not user.role or user.role not in ALLOWED_ROLES:
+        if user.role is None or user.role not in ALLOWED_ROLES:
             raise AuthenticationFailedException("Invalid email or password")
 
         # Generate signed, expiring JWT with minimal claims ('sub', 'iat', 'exp')
-        access_token = create_access_token(subject=user.id)
+        access_token = create_access_token(subject=str(user.id))
         expires_in = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
         return TokenResponse(

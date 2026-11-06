@@ -17,7 +17,7 @@ async def test_login_success_tourist(client: AsyncClient):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert data["expires_in"] == 1800
-    assert data["user"]["id"] == "usr-tourist-001"
+    assert data["user"]["id"] == 1
     assert data["user"]["name"] == "Nimal Perera"
     assert data["user"]["email"] == "tourist@example.com"
     assert data["user"]["role"] == "Tourist"
@@ -33,7 +33,7 @@ async def test_login_success_vendor(client: AsyncClient):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["user"]["id"] == "usr-vendor-001"
+    assert data["user"]["id"] == 2
     assert data["user"]["name"] == "Sunil Homestay"
     assert data["user"]["role"] == "Vendor"
 
@@ -48,7 +48,7 @@ async def test_login_success_admin(client: AsyncClient):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["user"]["id"] == "usr-admin-001"
+    assert data["user"]["id"] == 3
     assert data["user"]["name"] == "Kamal Admin"
     assert data["user"]["role"] == "Admin"
 
@@ -202,7 +202,7 @@ async def test_login_user_with_unknown_database_role_fails_safely(client: AsyncC
 
     # Insert user with an invalid/unknown role
     rogue_user = UserDomain(
-        id="usr-rogue-001",
+        id=999,
         name="Rogue User",
         email="rogue@example.com",
         password_hash=HASH_TOURIST,
@@ -214,6 +214,31 @@ async def test_login_user_with_unknown_database_role_fails_safely(client: AsyncC
     response = await client.post(
         "/api/auth/login",
         json={"email": "rogue@example.com", "password": "TouristPass123!"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid email or password"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_login_user_with_missing_role_fails_safely(client: AsyncClient, mock_user_repo):
+    """Test that a user with no role assigned (role=None) fails safely with 401."""
+    from app.domain.user import UserDomain
+    from tests.conftest import HASH_TOURIST
+
+    norole_user = UserDomain(
+        id=998,
+        name="No Role User",
+        email="norole@example.com",
+        password_hash=HASH_TOURIST,
+        role=None,  # Missing role (e.g. no UserRoles row)
+        is_active=True,
+    )
+    mock_user_repo.save_user(norole_user)
+
+    response = await client.post(
+        "/api/auth/login",
+        json={"email": "norole@example.com", "password": "TouristPass123!"},
     )
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid email or password"}

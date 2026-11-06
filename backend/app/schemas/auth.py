@@ -36,8 +36,8 @@ class UserResponse(BaseModel):
     """User profile data returned upon successful authentication."""
     model_config = ConfigDict(from_attributes=True)
 
-    id: str = Field(..., description="Stable user database identifier")
-    name: str = Field(..., description="User full display name")
+    id: int = Field(..., description="User database integer identifier (UserId)")
+    name: str = Field(..., description="User full display name (DisplayName)")
     email: str = Field(..., description="User email address")
     role: str = Field(..., description="Verified database role: Tourist, Vendor, or Admin")
 

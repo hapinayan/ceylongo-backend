@@ -1,6 +1,6 @@
 """Application configuration loaded strictly from environment variables or .env file."""
 
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Database Configuration (Phase 2 - Microsoft SQL Server 2022)
+    DATABASE_URL: Optional[str] = None
 
     # CORS Configuration
     CORS_ORIGINS: List[str] = [

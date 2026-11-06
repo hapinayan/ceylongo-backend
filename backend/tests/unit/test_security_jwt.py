@@ -125,9 +125,9 @@ async def test_reusable_role_dependencies(mock_user_repo: MockUserRepository):
 
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        admin_token = create_access_token(subject="usr-admin-001")
-        vendor_token = create_access_token(subject="usr-vendor-001")
-        tourist_token = create_access_token(subject="usr-tourist-001")
+        admin_token = create_access_token(subject=3)
+        vendor_token = create_access_token(subject=2)
+        tourist_token = create_access_token(subject=1)
 
         # Admin accesses admin-only -> 200
         res1 = await ac.get("/admin-only", headers={"Authorization": f"Bearer {admin_token}"})
@@ -164,14 +164,14 @@ async def test_account_deactivation_after_token_issuance(mock_user_repo: MockUse
 
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        tourist_token = create_access_token(subject="usr-tourist-001")
+        tourist_token = create_access_token(subject=1)
 
         # 1. Active user -> 200
         res1 = await ac.get("/profile", headers={"Authorization": f"Bearer {tourist_token}"})
         assert res1.status_code == 200
 
         # 2. Deactivate user in repository
-        tourist = await mock_user_repo.get_by_id("usr-tourist-001")
+        tourist = await mock_user_repo.get_by_id(1)
         assert tourist is not None
         tourist.is_active = False
         mock_user_repo.save_user(tourist)
@@ -196,14 +196,14 @@ async def test_account_deletion_after_token_issuance(mock_user_repo: MockUserRep
 
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        vendor_token = create_access_token(subject="usr-vendor-001")
+        vendor_token = create_access_token(subject=2)
 
         # 1. Valid user -> 200
         res1 = await ac.get("/profile", headers={"Authorization": f"Bearer {vendor_token}"})
         assert res1.status_code == 200
 
         # 2. Delete user in repository
-        mock_user_repo.delete_user("usr-vendor-001")
+        mock_user_repo.delete_user(2)
 
         # 3. Same token rejected immediately with 401
         res2 = await ac.get("/profile", headers={"Authorization": f"Bearer {vendor_token}"})
@@ -224,14 +224,14 @@ async def test_role_change_after_token_issuance(mock_user_repo: MockUserReposito
 
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        admin_token = create_access_token(subject="usr-admin-001")
+        admin_token = create_access_token(subject=3)
 
         # 1. Active Admin -> 200
         res1 = await ac.get("/admin-only", headers={"Authorization": f"Bearer {admin_token}"})
         assert res1.status_code == 200
 
         # 2. Demote Admin to Tourist in database
-        admin = await mock_user_repo.get_by_id("usr-admin-001")
+        admin = await mock_user_repo.get_by_id(3)
         assert admin is not None
         admin.role = "Tourist"
         mock_user_repo.save_user(admin)
@@ -239,3 +239,88 @@ async def test_role_change_after_token_issuance(mock_user_repo: MockUserReposito
         # 3. Same token now immediately rejected with 403 Forbidden
         res2 = await ac.get("/admin-only", headers={"Authorization": f"Bearer {admin_token}"})
         assert res2.status_code == 403
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_non_integer_subject_returns_safe_401(mock_user_repo: MockUserRepository):
+    """Test that non-integer subject conversion error returns safe 401, never a 500."""
+    test_app = FastAPI()
+
+    @test_app.get("/profile")
+    async def profile_endpoint(user: UserDomain = Depends(get_current_user)):
+        return {"name": user.name}
+
+    test_app.dependency_overrides[get_user_repository] = lambda: mock_user_repo
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        bad_token = create_access_token(subject="not-an-integer-id")
+        res = await ac.get("/profile", headers={"Authorization": f"Bearer {bad_token}"})
+        assert res.status_code == 401
+        assert "Could not validate credentials" in res.json()["detail"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_missing_role_rejected_in_get_current_user(mock_user_repo: MockUserRepository):
+    """Test that a user with role=None is rejected with 401 directly in get_current_user."""
+    from tests.conftest import HASH_TOURIST
+
+    norole_user = UserDomain(
+        id=777,
+        name="User Without Role",
+        email="norole_profile@example.com",
+        password_hash=HASH_TOURIST,
+        role=None,
+        is_active=True,
+    )
+    mock_user_repo.save_user(norole_user)
+
+    test_app = FastAPI()
+
+    # Generic protected endpoint that only checks get_current_user (no require_roles)
+    @test_app.get("/me")
+    async def me_endpoint(user: UserDomain = Depends(get_current_user)):
+        return {"id": user.id}
+
+    test_app.dependency_overrides[get_user_repository] = lambda: mock_user_repo
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        token = create_access_token(subject=777)
+        res = await ac.get("/me", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 401
+        assert "unauthorized account role" in res.json()["detail"].lower()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_unknown_role_rejected_in_get_current_user(mock_user_repo: MockUserRepository):
+    """Test that a user with an unknown role is rejected with 401 directly in get_current_user."""
+    from tests.conftest import HASH_TOURIST
+
+    unknown_role_user = UserDomain(
+        id=778,
+        name="User Unknown Role",
+        email="unknown_profile@example.com",
+        password_hash=HASH_TOURIST,
+        role="SuperUser",  # Not in ALLOWED_ROLES
+        is_active=True,
+    )
+    mock_user_repo.save_user(unknown_role_user)
+
+    test_app = FastAPI()
+
+    @test_app.get("/me")
+    async def me_endpoint(user: UserDomain = Depends(get_current_user)):
+        return {"id": user.id}
+
+    test_app.dependency_overrides[get_user_repository] = lambda: mock_user_repo
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        token = create_access_token(subject=778)
+        res = await ac.get("/me", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 401
+        assert "unauthorized account role" in res.json()["detail"].lower()

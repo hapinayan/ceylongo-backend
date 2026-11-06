@@ -20,11 +20,11 @@ from app.domain.user import UserDomain
 from app.main import app
 from app.repositories.base_user_repository import UserRepositoryInterface
 
-# Pre-computed bcrypt hashes for fast deterministic test execution without dynamic CPU overhead
-HASH_TOURIST = "$2b$04$m5O9APjSIjd8kp3LZVDo4OzWo9Q/ZPXyimA47HP3Nj9Bs2ikOdB/q"   # TouristPass123!
-HASH_VENDOR  = "$2b$04$tGHlmgOQ65lZpqOTJuP3RO0U24BPcJvv1yechxg/WUcvitoyRJknS"   # VendorPass123!
-HASH_ADMIN   = "$2b$04$o.w4g0BcYgmoqi/BYQDKUOiBzX5Z7uxUa5GQ4tpOLO1/khiJtwpjm"   # AdminPass123!
-HASH_INACTIVE = "$2b$04$wbbNwI/mB.PNpUWyHKLf.eS4K50jZHhOXy/j4H44lZbn6Rbl0VvE6"  # InactivePass123!
+# Pre-computed Argon2id hashes for fast deterministic test execution without dynamic CPU overhead
+HASH_TOURIST = "$argon2id$v=19$m=65536,t=3,p=4$frfiu7DuEq+3r+bHjGfIYw$3A8KZlcWdqrX4sfIyQNmGdXdFb9Ug/euygFpzpE0b3A"   # TouristPass123!
+HASH_VENDOR  = "$argon2id$v=19$m=65536,t=3,p=4$6TIx592RSBP9dkMahFNbuQ$qgj2lB3s9Z8WYdcxR3mNSYMdd9qpjPh9i5aRx7PZldw"   # VendorPass123!
+HASH_ADMIN   = "$argon2id$v=19$m=65536,t=3,p=4$djtsczZn4d8N+y+SkyWvHA$p61zuL7TK4uMzo5z5DAFuRwZslmmKXHtOfQFdPKfICc"   # AdminPass123!
+HASH_INACTIVE = "$argon2id$v=19$m=65536,t=3,p=4$7YHGyZmQXZuYtuDA3L2Q+Q$mmeprU0CEyWj8NNPFe/CVDgpgTopIZfZeMfC0KeBZwk"  # InactivePass123!
 
 
 class MockUserRepository(UserRepositoryInterface):
@@ -41,7 +41,7 @@ class MockUserRepository(UserRepositoryInterface):
     def _seed_data(self):
         # 1. Active Tourist
         tourist = UserDomain(
-            id="usr-tourist-001",
+            id=1,
             name="Nimal Perera",
             email="tourist@example.com",
             password_hash=HASH_TOURIST,
@@ -50,7 +50,7 @@ class MockUserRepository(UserRepositoryInterface):
         )
         # 2. Active Vendor
         vendor = UserDomain(
-            id="usr-vendor-001",
+            id=2,
             name="Sunil Homestay",
             email="vendor@example.com",
             password_hash=HASH_VENDOR,
@@ -59,7 +59,7 @@ class MockUserRepository(UserRepositoryInterface):
         )
         # 3. Active Admin
         admin = UserDomain(
-            id="usr-admin-001",
+            id=3,
             name="Kamal Admin",
             email="admin@example.com",
             password_hash=HASH_ADMIN,
@@ -68,7 +68,7 @@ class MockUserRepository(UserRepositoryInterface):
         )
         # 4. Inactive Tourist (Disabled account)
         inactive = UserDomain(
-            id="usr-inactive-001",
+            id=4,
             name="Disabled Tourist",
             email="inactive@example.com",
             password_hash=HASH_INACTIVE,
@@ -84,7 +84,7 @@ class MockUserRepository(UserRepositoryInterface):
         self._users_by_email[user.email.lower()] = user
         self._users_by_id[user.id] = user
 
-    def delete_user(self, user_id: str) -> None:
+    def delete_user(self, user_id: int) -> None:
         """Remove a user entity by ID to simulate account deletion."""
         if user_id in self._users_by_id:
             user = self._users_by_id.pop(user_id)
@@ -93,7 +93,7 @@ class MockUserRepository(UserRepositoryInterface):
     async def get_by_email(self, email: str) -> Optional[UserDomain]:
         return self._users_by_email.get(email.lower())
 
-    async def get_by_id(self, user_id: str) -> Optional[UserDomain]:
+    async def get_by_id(self, user_id: int) -> Optional[UserDomain]:
         return self._users_by_id.get(user_id)
 
 

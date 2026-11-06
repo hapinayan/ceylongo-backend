@@ -1,7 +1,7 @@
-# CeylonGo — Module 02: Phase 1 Authentication Foundation (SQL Server Integration Pending)
+# CeylonGo — Module 02: Shared Login API (SQL Server Integration Verified)
 
-> **Deliverable Status:** Phase 1 authentication foundation; SQL Server integration pending.<br/>
-> This deliverable establishes the core security interfaces, input validation, JWT issuance, rate limiting, and authorization dependencies. Live database login against Microsoft SQL Server 2022 will be attached in Phase 2 once Anushan confirms the physical schema. Live unconfigured requests safely return 503 Service Unavailable.
+> **Deliverable Status:** SQL Server Integration Verified; Client Integration Ready.<br/>
+> This deliverable completes the end-to-end verified authentication service for CeylonGo. Live login, Argon2id password verification, database integer ID mappings, dynamic role querying, JWT access token issuance, and role authorization dependencies have been verified against Microsoft SQL Server 2022. All 43 unit tests and 10 isolated SQL Server integration tests pass.
 
 Shared backend service for the CeylonGo Tourism Platform powering the Angular Web Client (Tourists) and Flutter Mobile App (Vendors & Admins).
 
@@ -11,20 +11,31 @@ Shared backend service for the CeylonGo Tourism Platform powering the Angular We
 
 Module 02 implements the core authentication and authorization layer for CeylonGo.
 
-### Implemented Capabilities (Phase 1):
+### Implemented Capabilities (Phases 1 & 2):
 - **Endpoint:** `POST /api/auth/login` (JSON request: `email`, `password`).
 - **Validation:** Pydantic v2 strict schema with RFC 5322 email syntax validation and `extra = "forbid"` (rejects client-supplied `role` fields).
-- **Password Verification:** Replaceable `PasswordVerifierInterface` with provisional `BcryptPasswordVerifier` enforcing strict 72-byte input limits without silent truncation.
+- **Password Verification:** Team-standardized `PasswordVerifierInterface` backed by `Argon2PasswordVerifier` using `pwdlib[argon2]` (`PasswordHash.recommended()`). Standardized on Argon2id (v=19, m=65536 KiB [64 MiB], t=3 iterations, p=4 lanes). Eliminates legacy bcrypt 72-byte restriction; full passwords preserved and verified exactly. Exported reusable `hash_password` helper for registration module integration.
 - **Timing Difference Reduction:** Pre-computed static dummy verification executed when an email address is not found in the database.
 - **Option A Inactive Account Policy:** Returns the identical generic `401 Unauthorized` (`"Invalid email or password"`) for nonexistent emails, incorrect passwords, or inactive accounts.
-- **JWT Access Tokens:** OAuth2 Bearer tokens signed with HS256 containing minimal claims (`sub`, `iat`, `exp`). Sensitive personal data, emails, and roles are excluded from token payloads.
+- **JWT Access Tokens:** OAuth2 Bearer tokens signed with HS256 containing minimal claims (`sub`, `iat`, `exp`). `sub` stores `str(user.id)`. Emails and roles are excluded from token payloads.
+- **Repository Integration (`SqlAlchemyUserRepository`):**
+  - Parameterized raw SQL queries matching `dbo.Users`, `dbo.UserRoles`, and `dbo.Roles`.
+  - Maps database `INT IDENTITY` to domain integer `id`.
+  - Preserves missing `RoleName` as `None` (never `str(None)`).
+  - Offloaded to worker threads via `run_in_threadpool` to avoid blocking FastAPI's async event loop.
+  - Safe session management via context manager closing each session cleanly.
 - **Reusable Dependencies:**
-  - `get_current_user`: Decodes bearer token and resolves the user in real time from the database.
+  - `get_current_user`: Decodes bearer token, safely parses integer `sub` (returns 401 on malformed non-integer subject, never 500), and resolves the user and current role from the database. Rejects missing (`None`) or unknown roles immediately with safe 401.
   - `require_roles(["Admin", ...])`: Enforces role-based authorization returning `403 Forbidden` for unauthorized roles.
 - **Rate Limiting:** In-memory, thread-safe, sliding-window rate limiter with memory-bounded capacity (defaults to 5 failed attempts per 60 seconds; returns 429 with `Retry-After`).
   - *Limitation:* Single Python process in-memory implementation. A distributed cache (e.g. Redis) is required for multi-worker scaling.
 - **Angular CORS:** Restricted explicitly to `http://localhost:4200` and `http://127.0.0.1:4200` (`allow_credentials=False` for Bearer token flow).
-- **Zero Mock Authentication in Production:** Default production wiring uses `UnconfiguredUserRepository`, which safely fails with a sanitized `503 Service Unavailable` until Phase 2 database integration is completed.
+- **Safe Fallback Wiring:** When `DATABASE_URL` is omitted, the application uses `UnconfiguredUserRepository`, which safely fails with a sanitized `503 Service Unavailable`.
+
+### Scope Boundaries & Remaining Limitations:
+- **In-Memory Rate Limiting:** Single Python process in-memory implementation. A distributed cache (e.g. Redis) is required for multi-worker scaling.
+- **Registration & Profile Onboarding:** User registration, vendor verification/onboarding, and password reset endpoints belong to other FYP modules and are out of scope for Module 02.
+- **TLS Certificate Validation:** `TrustServerCertificate=yes` is strictly for local development without custom CA certificates; production cloud environments must validate server certificates via proper CA chains.
 
 ---
 
@@ -33,8 +44,20 @@ Module 02 implements the core authentication and authorization layer for CeylonG
 ### 2.1 Prerequisites
 - **Python 3.11 or 3.12+**
 - **PowerShell 5.1 or PowerShell 7+**
+- **Microsoft ODBC Driver 18 for SQL Server** (x64 Windows installer)
+- **Microsoft SQL Server 2022** (Standard, Developer, Express, or LocalDB)
 
-### 2.2 Create and Activate Virtual Environment
+### 2.2 Accessing the Database Schema Script
+The database teammate's schema script resides on remote branch `feature/mithushika-login`. To inspect or extract it without switching branches or merging:
+```powershell
+# Fetch the remote branch (read-only)
+git fetch origin feature/mithushika-login
+
+# Inspect the schema script directly
+git show origin/feature/mithushika-login:database/CeylonGo_Login_Schema.sql
+```
+
+### 2.3 Create and Activate Virtual Environment
 Open PowerShell in the project root directory:
 ```powershell
 # Navigate to the backend directory
@@ -47,12 +70,12 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 2.3 Install Dependencies
+### 2.4 Install Dependencies
 ```powershell
 pip install -r requirements.txt
 ```
 
-### 2.4 Configure Environment File
+### 2.5 Configure Environment File
 ```powershell
 # Copy the example environment template
 Copy-Item .env.example .env
@@ -63,20 +86,56 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 Paste this value into `.env` under `SECRET_KEY`.
 
+### 2.6 Database Connection Configuration
+In `backend/.env`, configure `DATABASE_URL` matching your local SQL Server instance:
+
+- **Option A: SQL Server Authentication (TCP Port 1433)**
+  ```env
+  DATABASE_URL="mssql+pyodbc://sa:YourPassword123@localhost:1433/CeylonGoDB?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+  ```
+- **Option B: Named Instance (e.g. SQLEXPRESS) with Windows Authentication**
+  ```env
+  DATABASE_URL="mssql+pyodbc://@localhost\SQLEXPRESS/CeylonGoDB?driver=ODBC+Driver+18+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes"
+  ```
+- **Option C: LocalDB with Windows Authentication**
+  ```env
+  DATABASE_URL="mssql+pyodbc://@(localdb)\MSSQLLocalDB/CeylonGoDB?driver=ODBC+Driver+18+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes"
+  ```
+
+> [!NOTE]
+> `TrustServerCertificate=yes` is strictly for local development without custom CA certificates; production environments must validate server certificates using proper CA chains.
+> If `DATABASE_URL` is omitted, the application starts in safe fallback mode (returning 503 for login requests).
+
 ---
 
 ## 3. Running the Test Suite
 
-The test suite contains 24 isolated unit tests covering API validation, credentials, Option A error policy, JWT encoding/decoding, CORS preflights, rate limiting, and password boundary checks.
+The test suite contains 43 isolated unit tests and 10 isolated SQL Server integration tests.
 
-Run all tests from the repository root:
+### 3.1 Running Unit Tests (Default)
+Unit tests run using in-memory mock repository interfaces and do not require SQL Server:
 ```powershell
-& "backend/.venv/Scripts/pytest.exe" -c backend/pytest.ini -o pythonpath=backend backend/tests -v
+& "backend/.venv/Scripts/pytest.exe" -c backend/pytest.ini -o pythonpath=backend backend/tests/unit -v
 ```
 Or directly from inside `backend/`:
 ```powershell
 cd backend
-pytest -v
+pytest tests/unit -v
+```
+When running the full test suite without integration opt-in, integration tests are automatically **SKIPPED** (reporting 43 passed, 10 skipped).
+
+### 3.2 Running SQL Server Integration Tests (Isolated Test Database)
+Integration tests verify live SQL Server queries, Argon2id verification, and authorization against `CeylonGoDB_LoginTest`. For multi-layer safety:
+1. They require explicit opt-in via `RUN_SQL_SERVER_INTEGRATION_TESTS=1`.
+2. They require an isolated `TEST_DATABASE_URL` (pointing to `CeylonGoDB_LoginTest`).
+3. They strictly reject targeting the primary application `DATABASE_URL` or `CeylonGoDB`.
+4. They create temporary test users, resolve role IDs dynamically, verify login and token access, and clean up all test records on fixture teardown.
+
+To execute the integration tests:
+```powershell
+$env:RUN_SQL_SERVER_INTEGRATION_TESTS="1"
+$env:TEST_DATABASE_URL="mssql+pyodbc://@.\SQLEXPRESS01/CeylonGoDB_LoginTest?driver=ODBC+Driver+18+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes"
+& "backend/.venv/Scripts/pytest.exe" -c backend/pytest.ini -o pythonpath=backend backend/tests/integration -v
 ```
 
 ---
@@ -116,7 +175,7 @@ Content-Type: application/json
   "token_type": "bearer",
   "expires_in": 1800,
   "user": {
-    "id": "usr-tourist-001",
+    "id": 1,
     "name": "Nimal Perera",
     "email": "tourist@example.com",
     "role": "Tourist"
@@ -216,11 +275,13 @@ curl -X GET "http://127.0.0.1:8000/api/protected-route" \
    - பிறகு `.\.venv\Scripts\Activate.ps1` மூலம் அதனை இயக்கவும் (Activate).
 
 2. **தேவையான தொகுப்புகளை (Dependencies) நிறுவுதல்:**
-   - `pip install -r requirements.txt` கட்டளையை இயக்கினால் FastAPI, Pydantic, PyJWT, Bcrypt மற்றும் Pytest நிறுவப்படும்.
+   - `pip install -r requirements.txt` கட்டளையை இயக்கினால் FastAPI, Pydantic, PyJWT, pwdlib[argon2], SQLAlchemy, PyODBC மற்றும் Pytest நிறுவப்படும்.
 
 3. **சோதனைகளை இயக்குதல் (Run Tests):**
-   - அனைத்து 24 unit tests-களையும் சரிபார்க்க `pytest -v` கட்டளையை இயக்கவும்.
+   - 43 unit tests-களையும் சரிபார்க்க `pytest tests/unit -v` கட்டளையை இயக்கவும்.
+   - SQL Server integration tests (10 tests) இயக்க `RUN_SQL_SERVER_INTEGRATION_TESTS=1` அமைத்து `pytest tests/integration -v` இயக்கலாம்.
 
 4. **FastAPI சேவையைத் தொடங்குதல் (Start Server):**
    - `uvicorn app.main:app --reload --port 8000` கட்டளையை இயக்கினால் backend தயாராகிவிடும்.
    - Swagger API ஆவணங்களை `http://127.0.0.1:8000/docs` இல் காணலாம்.
+   - SQL Server `.\SQLEXPRESS01` (`CeylonGoDB`) இணைக்கப்பட்டு Login API முழுமையாக Angular Tourist Client (`localhost:4200`) மற்றும் Flutter Apps உடன் இணையத் தயாராக உள்ளது.
