@@ -1,0 +1,26 @@
+# CeylonGo Backend - Phase 2 Dependencies (Authentication + SQL Server Integration)
+
+# Core Web Framework
+fastapi==0.115.11
+uvicorn[standard]==0.34.0
+
+# Configuration and Validation
+pydantic==2.10.6
+pydantic-settings==2.8.1
+email-validator==2.2.0
+
+# Security, Token Generation, and Password Hashing (Argon2id via pwdlib)
+PyJWT[crypto]==2.10.1
+cryptography==44.0.2
+pwdlib[argon2]==0.3.1
+argon2-cffi==25.1.0
+argon2-cffi-bindings==26.1.0
+
+# Database Connectivity (Phase 2 - Microsoft SQL Server 2022)
+sqlalchemy==2.0.38
+pyodbc==5.2.0
+
+# Testing Framework
+pytest==8.3.5
+pytest-asyncio==0.25.3
+httpx==0.28.1
